@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scout — Mapping the territory before you walk it</title>
+<meta name="description" content="The design story of Scout: an always-on system for surfacing unknown unknowns — the reasoning, the failure modes it routes around, and the architecture that came out.">
+<meta property="og:title" content="Scout — a systems design story">
+<meta property="og:description" content="You can't ask for what you can't name. How an always-on unknown-unknowns system was designed.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..800&family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #faf7f0;
+    --paper-deep: #f3eee2;
+    --ink: #1c1917;
+    --ink-soft: #59524a;
+    --ink-faint: #8a8174;
+    --rust: #b3410f;
+    --rust-deep: #8a3209;
+    --line: #e4dcc9;
+    --night: #181410;
+    --night-ink: #ece4d4;
+    --night-soft: #a89c88;
+    --serif-display: "Fraunces", Georgia, serif;
+    --serif-body: "Newsreader", Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif-body);
+    font-size: 1.1875rem;
+    line-height: 1.65;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  ::selection { background: var(--rust); color: var(--paper); }
+
+  a { color: var(--rust-deep); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--rust); outline-offset: 3px; border-radius: 2px; }
+
+  .wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.5rem; }
+  .wrap-wide { max-width: 64rem; margin: 0 auto; padding: 0 1.5rem; }
+
+  .mono {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0;
+    text-transform: none;
+    background: var(--paper-deep);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.1em 0.45em;
+    white-space: nowrap;
+  }
+
+  /* ---------- reading progress ---------- */
+  .progress {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    z-index: 500;
+    pointer-events: none;
+  }
+  .progress i {
+    display: block;
+    height: 100%;
+    background: var(--rust);
+    transform-origin: left;
+    transform: scaleX(0);
+  }
+
+  /* ---------- compass ---------- */
+  .compass {
+    position: fixed;
+    right: 1.6rem;
+    bottom: 1.6rem;
+    width: 54px; height: 54px;
+    z-index: 400;
+    pointer-events: none;
+    opacity: 0.92;
+  }
+  .compass svg { width: 100%; height: 100%; display: block; }
+  .compass .rose { fill: none; stroke: var(--line); stroke-width: 1.4; }
+  .compass .cardinal { font-family: var(--mono); font-size: 8.5px; fill: var(--ink-faint); }
+  .compass .needle-g { transform-origin: 27px 27px; }
+  .compass .needle-n { fill: var(--rust); }
+  .compass .needle-s { fill: var(--line); }
+  @media (max-width: 720px) { .compass { display: none; } }
+
+  /* ---------- reveal machinery (no-JS / fallback layer) ---------- */
+  .rv { opacity: 0; transform: translateY(18px); }
+  .in .rv, .rv.in {
+    opacity: 1; transform: none;
+    transition: opacity var(--d, 480ms) cubic-bezier(0.16, 1, 0.3, 1),
+                transform var(--d, 480ms) cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: var(--t, 0ms);
+  }
+
+  /* ---------- hero ---------- */
+  header.hero {
+    min-height: 92vh;
+    display: flex;
+    align-items: center;
+    position: relative;
+    border-bottom: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .radar-holder { position: absolute; inset: 0; overflow: hidden; }
+  .radar {
+    position: absolute;
+    right: -12vmin;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 74vmin;
+    height: 74vmin;
+    pointer-events: none;
+    opacity: 0.9;
+  }
+  .radar circle.ring { fill: none; stroke: var(--line); stroke-width: 1; }
+  .radar line.axis { stroke: var(--line); stroke-width: 1; }
+  .sweep {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, rgba(179, 65, 15, 0.16), rgba(179, 65, 15, 0.02) 18%, transparent 24%);
+    animation: sweep 7s linear infinite;
+  }
+  @keyframes sweep { to { transform: rotate(360deg); } }
+  .blip {
+    position: absolute;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--rust);
+    opacity: 0;
+    animation: blip 7s ease-out infinite;
+  }
+  .blip::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 1px solid var(--rust);
+    animation: ping 7s ease-out infinite;
+    animation-delay: inherit;
+    opacity: 0;
+  }
+  @keyframes blip {
+    0%, 8% { opacity: 0; transform: scale(0.4); }
+    12% { opacity: 0.95; transform: scale(1); }
+    46% { opacity: 0.25; }
+    100% { opacity: 0; transform: scale(0.85); }
+  }
+  @keyframes ping {
+    0%, 10% { opacity: 0; transform: scale(1); }
+    14% { opacity: 0.7; transform: scale(1); }
+    44% { opacity: 0; transform: scale(4.5); }
+    100% { opacity: 0; transform: scale(4.5); }
+  }
+  .blip:nth-child(1) { top: 31%; left: 62%; animation-delay: 0.9s; }
+  .blip:nth-child(2) { top: 58%; left: 71%; animation-delay: 2.7s; }
+  .blip:nth-child(3) { top: 44%; left: 38%; animation-delay: 4.6s; }
+
+  .hero-inner { position: relative; padding: 6rem 0 5rem; max-width: 36rem; }
+  .hero .eyebrow { color: var(--rust-deep); margin-bottom: 2rem; display: block; }
+  .hero h1 {
+    font-family: var(--serif-display);
+    font-weight: 560;
+    font-variation-settings: "opsz" 100;
+    font-size: clamp(2.6rem, 7vw, 4.4rem);
+    line-height: 1.04;
+    letter-spacing: -0.015em;
+    margin-bottom: 1.75rem;
+  }
+  .hero h1 em { font-style: italic; color: var(--rust); }
+  .hero h1 .w {
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: bottom;
+    line-height: 1.16;
+    padding-bottom: 0.05em;
+    margin-bottom: -0.05em;
+  }
+  .hero h1 .wi { display: inline-block; }
+  .hero p.dek {
+    font-size: 1.25rem;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    max-width: 30rem;
+  }
+  .hero .scrollcue {
+    margin-top: 3.5rem;
+    color: var(--ink-faint);
+  }
+
+  /* ---------- sections ---------- */
+  section { padding: 6.5rem 0; }
+  section + section { border-top: 1px solid var(--line); }
+
+  .kicker {
+    color: var(--rust-deep);
+    display: block;
+    margin-bottom: 1.4rem;
+  }
+  h2 {
+    font-family: var(--serif-display);
+    font-weight: 540;
+    font-size: clamp(1.9rem, 4.4vw, 2.7rem);
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    margin-bottom: 1.6rem;
+    max-width: 32rem;
+  }
+  p + p { margin-top: 1.25rem; }
+  section p { color: var(--ink-soft); }
+  section p strong { color: var(--ink); font-weight: 600; }
+
+  .pull {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 480;
+    font-size: clamp(1.35rem, 3vw, 1.7rem);
+    line-height: 1.35;
+    color: var(--ink);
+    border-left: 2px solid var(--line);
+    padding-left: 1.5rem;
+    margin: 2.5rem 0;
+    position: relative;
+  }
+  .pull::before {
+    content: '';
+    position: absolute;
+    left: -2px; top: 0; bottom: 0;
+    width: 2px;
+    background: var(--rust);
+    transform-origin: top;
+    transform: scaleY(var(--draw, 1));
+  }
+
+  /* ---------- rumsfeld matrix ---------- */
+  .matrix-frame { margin: 3.5rem auto 1rem; max-width: 34rem; }
+  .matrix {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .matrix .cell {
+    background: var(--paper);
+    padding: 1.9rem 1.4rem;
+    min-height: 9.5rem;
+  }
+  .matrix .cell .mono { color: var(--ink-faint); display: block; margin-bottom: 0.6rem; }
+  .matrix .cell p { font-size: 0.95rem; line-height: 1.5; }
+  .matrix .cell.target {
+    background: var(--night);
+    color: var(--night-ink);
+    position: relative;
+    overflow: hidden;
+  }
+  .matrix .cell.target .mono { color: var(--rust); }
+  .matrix .cell.target p { color: var(--night-soft); }
+  .matrix .cell.target::after {
+    content: "scout operates here";
+    position: absolute;
+    bottom: 0.9rem; left: 1.4rem;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--rust);
+  }
+  .matrix .cell.target .cell-blip {
+    position: absolute;
+    top: 1.1rem; right: 1.1rem;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--rust);
+    animation: blip 4s ease-out infinite;
+    animation-delay: 1s;
+  }
+  .matrix-caption {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    color: var(--ink-faint);
+    font-style: italic;
+  }
+
+  /* ---------- anatomy table ---------- */
+  .anatomy { margin: 3rem 0 1rem; border-top: 1px solid var(--line); }
+  .anatomy .row {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr;
+    gap: 1.5rem;
+    padding: 1.5rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .anatomy .row .mono { color: var(--rust-deep); padding-top: 0.35rem; }
+  .anatomy .row h3 {
+    font-family: var(--serif-display);
+    font-weight: 560;
+    font-size: 1.18rem;
+    margin-bottom: 0.3rem;
+  }
+  .anatomy .row p { font-size: 1.02rem; }
+
+  /* ---------- insights ---------- */
+  .insight { padding: 5.5rem 0; border-top: 1px solid var(--line); }
+  .insight .num {
+    font-family: var(--serif-display);
+    font-style: italic;
+    font-weight: 360;
+    font-size: clamp(3.6rem, 8vw, 5.5rem);
+    line-height: 1;
+    color: var(--rust);
+    opacity: 0.85;
+    display: block;
+    margin-bottom: 1.1rem;
+    will-change: transform;
+  }
+  .insight h2 { margin-bottom: 1.4rem; }
+  .insight .lesson {
+    margin-top: 2rem;
+    padding: 1.2rem 1.4rem;
+    background: var(--paper-deep);
+    border-left: 2px solid var(--rust);
+    font-size: 0.98rem;
+  }
+  .insight .lesson .mono { color: var(--rust-deep); display: block; margin-bottom: 0.45rem; }
+
+  /* ---------- architecture ---------- */
+  .arch {
+    background: var(--night);
+    color: var(--night-ink);
+    padding: 7rem 0;
+  }
+  .arch .kicker { color: var(--rust); }
+  .arch h2 { color: var(--night-ink); max-width: 38rem; }
+  .arch > .wrap-wide > p { color: var(--night-soft); max-width: 36rem; }
+  .pipeline { margin-top: 4rem; position: relative; }
+  .pipeline .route {
+    position: absolute;
+    left: 0.55rem;
+    top: 0; bottom: 0;
+    width: 2px;
+    pointer-events: none;
+  }
+  .pipeline .route svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .pipeline .route line {
+    stroke: var(--rust);
+    stroke-width: 2;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 3.2rem 11rem 1fr;
+    gap: 1.4rem;
+    padding: 1.55rem 0 1.55rem 2rem;
+    border-top: 1px solid #2c251d;
+    align-items: baseline;
+    position: relative;
+  }
+  .step:last-child { border-bottom: 1px solid #2c251d; }
+  .step::before {
+    content: '';
+    position: absolute;
+    left: 0.28rem;
+    top: 2.1rem;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--night);
+    border: 1.5px solid #3a3226;
+    transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+  }
+  .step.is-passed::before {
+    background: var(--rust);
+    border-color: var(--rust);
+    box-shadow: 0 0 10px rgba(179, 65, 15, 0.55);
+  }
+  .step .n {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--rust);
+  }
+  .step .name {
+    font-family: var(--serif-display);
+    font-weight: 540;
+    font-size: 1.25rem;
+    color: var(--night-ink);
+  }
+  .step .what { font-size: 1rem; color: var(--night-soft); line-height: 1.55; }
+  .step .what .chip {
+    background: #241e16;
+    border-color: #38302444;
+    color: #cfc4ae;
+  }
+  .lenses {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: #2c251d;
+    border: 1px solid #2c251d;
+    margin-top: 0.9rem;
+  }
+  .lenses div {
+    background: var(--night);
+    padding: 1rem 1.1rem;
+  }
+  .lenses .mono { color: var(--rust); display: block; margin-bottom: 0.4rem; }
+  .lenses p { font-size: 0.85rem; color: var(--night-soft); line-height: 1.5; }
+
+  /* ---------- proof ---------- */
+  .findings { margin-top: 3rem; counter-reset: f; }
+  .finding {
+    border-top: 1px solid var(--line);
+    padding: 2rem 0;
+    display: grid;
+    grid-template-columns: 3rem 1fr;
+    gap: 1.4rem;
+  }
+  .finding:last-of-type { border-bottom: 1px solid var(--line); }
+  .finding::before {
+    counter-increment: f;
+    content: counter(f, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--rust);
+    padding-top: 0.45rem;
+  }
+  .finding h3 {
+    font-family: var(--serif-display);
+    font-weight: 560;
+    font-size: 1.3rem;
+    margin-bottom: 0.45rem;
+  }
+  .finding p { font-size: 1.02rem; }
+
+  .verdict {
+    margin-top: 2.8rem;
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+    line-height: 1.6;
+    color: var(--rust-deep);
+    border: 2px solid var(--rust);
+    border-radius: 4px;
+    padding: 1rem 1.3rem;
+    transform: rotate(-1.4deg);
+    position: relative;
+    background:
+      radial-gradient(ellipse at 30% 80%, rgba(179,65,15,0.05), transparent 60%),
+      var(--paper);
+  }
+  .verdict::before {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border: 1px solid rgba(179, 65, 15, 0.35);
+    border-radius: 2px;
+    pointer-events: none;
+  }
+  .verdict strong {
+    display: block;
+    font-size: 1.05rem;
+    letter-spacing: 0.18em;
+    color: var(--rust);
+    margin-bottom: 0.3rem;
+  }
+
+  /* ---------- colophon ---------- */
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 4.5rem 0 5.5rem;
+    color: var(--ink-faint);
+    font-size: 0.95rem;
+  }
+  footer .mono { color: var(--rust-deep); display: block; margin-bottom: 1.2rem; }
+  footer p { max-width: 36rem; }
+  footer p + p { margin-top: 0.9rem; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 720px) {
+    .radar { opacity: 0.45; right: -38vmin; }
+    .anatomy .row, .step { grid-template-columns: 1fr; gap: 0.4rem; }
+    .lenses { grid-template-columns: 1fr; }
+    .finding { grid-template-columns: 2.2rem 1fr; gap: 0.9rem; }
+  }
+
+  /* ---------- reduced motion: reduced, not none ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .sweep, .blip, .blip::after, .cell-blip { animation: none; }
+    .blip { opacity: 0.55; }
+    .rv { transform: none; }
+    .in .rv, .rv.in { transition: opacity 300ms ease-out; }
+    .compass { display: none; }
+    .verdict { transform: rotate(-1.4deg); }
+  }
+</style>
+<noscript><style>
+  .rv { opacity: 1 !important; transform: none !important; }
+  .progress, .compass { display: none !important; }
+  .pull::before { transform: scaleY(1) !important; }
+</style></noscript>
+</head>
+<body>
+
+<div class="progress" aria-hidden="true"><i id="progressFill"></i></div>
+
+<div class="compass" aria-hidden="true">
+  <svg viewBox="0 0 54 54">
+    <circle class="rose" cx="27" cy="27" r="25"/>
+    <text class="cardinal" x="27" y="11" text-anchor="middle">N</text>
+    <g class="needle-g" id="compassNeedle">
+      <polygon class="needle-n" points="27,12 30,27 27,30 24,27"/>
+      <polygon class="needle-s" points="27,42 30,27 27,24 24,27"/>
+    </g>
+    <circle cx="27" cy="27" r="1.8" fill="var(--rust)"/>
+  </svg>
+</div>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="radar-holder" aria-hidden="true">
+    <div class="radar" id="radar">
+      <svg viewBox="0 0 100 100" width="100%" height="100%">
+        <circle class="ring" cx="50" cy="50" r="49"/>
+        <circle class="ring" cx="50" cy="50" r="36"/>
+        <circle class="ring" cx="50" cy="50" r="23"/>
+        <circle class="ring" cx="50" cy="50" r="10"/>
+        <line class="axis" x1="50" y1="1" x2="50" y2="99"/>
+        <line class="axis" x1="1" y1="50" x2="99" y2="50"/>
+      </svg>
+      <div class="sweep"></div>
+      <div class="blip"></div>
+      <div class="blip"></div>
+      <div class="blip"></div>
+    </div>
+  </div>
+  <div class="wrap-wide" style="width:100%">
+    <div class="hero-inner in">
+      <span class="eyebrow mono rv" style="--d:420ms">Scout · a systems design story</span>
+      <h1 class="rv" id="heroH1" style="--d:560ms; --t:60ms">You can't ask for what you can't <em>name</em>.</h1>
+      <p class="dek rv" style="--d:500ms; --t:140ms">How an always-on system for surfacing unknown unknowns was designed — the reasoning, the failure modes it routes around, and the architecture that came out the other side.</p>
+      <div class="scrollcue mono rv" style="--d:440ms; --t:230ms">↓ the territory below</div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ THE PROBLEM ============ -->
+<section id="problem">
+  <div class="wrap">
+    <span class="kicker mono rv">The problem</span>
+    <h2 class="rv" style="--t:40ms">The nagging sense that a better option exists — somewhere you've never looked.</h2>
+    <p class="rv" style="--t:80ms">Every substantial piece of work begins inside a vocabulary. If you know the words — the terms of art, the named methods, the canonical tools — you can search, compare, and choose. If you don't, you can't even form the question. The work still happens; it just happens inside a smaller universe than the real one, and you never find out what you didn't consider.</p>
+    <p class="rv" style="--t:110ms">This is the practical meaning of the famous quadrant. Known knowns are your craft. Known unknowns become to-do items. But the fourth quadrant is invisible by definition — and it's where the best option often lives.</p>
+
+    <div class="matrix-frame rv" style="--t:140ms; --d:560ms">
+      <div class="matrix" id="matrix" role="img" aria-label="A two-by-two matrix of knowledge: known knowns, known unknowns, unknown knowns, and unknown unknowns — with scout operating in the unknown unknowns quadrant.">
+        <div class="cell">
+          <span class="mono">Known knowns</span>
+          <p>Your craft. What you reach for without thinking.</p>
+        </div>
+        <div class="cell">
+          <span class="mono">Known unknowns</span>
+          <p>Questions you can already ask. Research handles these.</p>
+        </div>
+        <div class="cell">
+          <span class="mono">Unknown knowns</span>
+          <p>Things your tools and vaults know that you've forgotten you have.</p>
+        </div>
+        <div class="cell target">
+          <span class="cell-blip" aria-hidden="true"></span>
+          <span class="mono">Unknown unknowns</span>
+          <p>Concepts you can't search for because you can't name them.</p>
+        </div>
+      </div>
+      <p class="matrix-caption">The design target: a system that converts the fourth quadrant into the second — on its own initiative.</p>
+    </div>
+
+    <p class="pull rv" style="--t:60ms">The founding insight: vocabulary acquisition is the fastest converter of unknown unknowns into known unknowns. Learn what things are called, and the territory becomes searchable.</p>
+
+    <p class="rv" style="--t:90ms">A concrete example that drove the whole design: wanting a beautiful landing page but not knowing that "scroll-driven" and "scroll-triggered" are different things, that a <span class="chip">magnetic button</span> has a name, or that libraries of every named animation pattern already exist. The gap wasn't skill. It was nouns.</p>
+  </div>
+</section>
+
+<!-- ============ THE SHAPE ============ -->
+<section id="shape">
+  <div class="wrap">
+    <span class="kicker mono rv">The shape of the answer</span>
+    <h2 class="rv" style="--t:40ms">No single primitive could do this job.</h2>
+    <p class="rv" style="--t:80ms">The request was for something autonomous, proactive, and woven through every workflow. But each available primitive fails alone: a skill is smart and deep, yet passive — it waits to be called. A hook is always-on, yet must run in milliseconds, so it can't think. A knowledge base remembers but never initiates. A dashboard surfaces but never investigates.</p>
+    <p class="rv" style="--t:110ms">So the architecture is a division of labor — four organs, each doing the one thing its primitive is actually good at:</p>
+
+    <div class="anatomy">
+      <div class="row rv" style="--t:40ms">
+        <span class="mono">The brain</span>
+        <div>
+          <h3>A skill that maps territory</h3>
+          <p>The full methodology — scoping, sweeping, compiling, routing — loaded only when needed. Smart, slow, invoked.</p>
+        </div>
+      </div>
+      <div class="row rv" style="--t:80ms">
+        <span class="mono">The radar</span>
+        <div>
+          <h3>A hook that never sleeps</h3>
+          <p>Fifty milliseconds of regex on every prompt, watching for the signature of new territory. Dumb, instant, always-on.</p>
+        </div>
+      </div>
+      <div class="row rv" style="--t:120ms">
+        <span class="mono">The memory</span>
+        <div>
+          <h3>A knowledge base that compounds</h3>
+          <p>Every mapped domain becomes a permanent brief — indexed, cross-linked, never re-derived from scratch.</p>
+        </div>
+      </div>
+      <div class="row rv" style="--t:160ms">
+        <span class="mono">The surface</span>
+        <div>
+          <h3>A command center that proposes</h3>
+          <p>Top gaps land in an inbox a human reviews. The system suggests; it never decides what gets pursued.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INSIGHTS ============ -->
+<section style="border-top:none; padding-bottom:0;">
+  <div class="wrap">
+    <span class="kicker mono rv">The six decisions</span>
+    <h2 class="rv" style="--t:40ms">Every piece of the architecture exists because something simpler fails.</h2>
+  </div>
+</section>
+
+<article class="insight" id="i1">
+  <div class="wrap">
+    <span class="num rv">01</span>
+    <h2 class="rv" style="--t:50ms">Ship a map, not an answer.</h2>
+    <p class="rv" style="--t:90ms">The obvious design — "research the topic and tell me what to do" — quietly recreates the original problem: you get one answer, chosen from a universe you still can't see. Scout's deliverable is deliberately not an answer. It's a <strong>domain brief</strong>: the vocabulary, the taxonomy of approaches, the canonical resources, the tribal knowledge, and — most importantly — the questions you didn't know to ask.</p>
+    <p class="rv" style="--t:120ms">Naming precedes choosing. Once the territory has names, every existing tool — research agents, tutors, design systems — suddenly works better, because now you can tell them precisely what you want.</p>
+    <div class="lesson rv" style="--t:150ms"><span class="mono">Design rule</span>Scout names things; other tools resolve them. The brief ends with a routing table, not a recommendation.</div>
+  </div>
+</article>
+
+<article class="insight" id="i2">
+  <div class="wrap">
+    <span class="num rv">02</span>
+    <h2 class="rv" style="--t:50ms">A dumb tripwire with a smart filter.</h2>
+    <p class="rv" style="--t:90ms">"Always-on and proactive" is where systems like this usually die. A prior advisor in this same environment ran a sophisticated check on every response — and earned a documented verdict of <em>near-zero hit rate</em>. The lesson wasn't that proactivity fails; it's that <strong>expensive proactivity fails</strong>. Anything that runs constantly must cost almost nothing and be wrong gracefully.</p>
+    <p class="rv" style="--t:120ms">So detection is split in two. The hook is deliberately stupid: pure regex hunting for uncertainty phrases — <span class="chip">"I don't even know what's possible"</span> — and new-endeavor verbs, hard-capped at one fire per session, three per day. No model call, no network, under fifty milliseconds. When it trips, the <em>session model</em> — which has full context, memory, and judgment — decides whether the nudge deserves a single offered line or total silence.</p>
+    <div class="lesson rv" style="--t:150ms"><span class="mono">Design rule</span>Cheap trigger, smart filter. Intelligence belongs where context lives — never in the hot path.</div>
+  </div>
+</article>
+
+<article class="insight" id="i3">
+  <div class="wrap">
+    <span class="num rv">03</span>
+    <h2 class="rv" style="--t:50ms">Blind lenses find what one searcher can't.</h2>
+    <p class="rv" style="--t:90ms">One researcher finds what it searches for — which is precisely the trap when the goal is finding what nobody thought to search for. Scout's sweep runs parallel agents that <strong>cannot see each other</strong>, each owning a different way of seeing: the <em>Lexicon</em> hunts terms of art and taxonomy, the <em>Toolsmith</em> hunts the canonical stack and the curated indexes, the <em>Elder</em> hunts tribal knowledge — what ten-year practitioners know that no documentation says.</p>
+    <p class="rv" style="--t:120ms">Diversity catches what redundancy can't. Three identical researchers converge on the same popular sources; three blind lenses triangulate territory none would find alone. Each prompt carries elicitation questions tuned to break past the obvious: <em>"What did this field call this concept ten years ago?" "What do beginners reliably get wrong in their first month?"</em></p>
+    <div class="lesson rv" style="--t:150ms"><span class="mono">Design rule</span>For unknown-unknown discovery, vary the angle of search, not the volume of it.</div>
+  </div>
+</article>
+
+<article class="insight" id="i4">
+  <div class="wrap">
+    <span class="num rv">04</span>
+    <h2 class="rv" style="--t:50ms">The maker never grades its own work.</h2>
+    <p class="rv" style="--t:90ms">A brief that <em>feels</em> comprehensive is worse than no brief — it closes the very curiosity it was meant to open. And systems confidently approve their own mediocre output; that's a structural failure, not a prompting one. So every brief faces a <strong>fresh-context verifier</strong>: a separate agent that never saw how the work was made, grading against a frozen rubric of binary, countable criteria. Twenty-five vocabulary terms or fail. A curated index and a practitioner community with working URLs, or fail. Questions that each name the concept unlocking them, or fail.</p>
+    <p class="rv" style="--t:120ms">The verifier opens the files, counts the items, and fetches sample URLs itself. Architecture enforces honesty that intention can't.</p>
+    <div class="lesson rv" style="--t:150ms"><span class="mono">Design rule</span>Separate the doer from the judge. Make every criterion observable, so the grade is a measurement — not an opinion.</div>
+  </div>
+</article>
+
+<article class="insight" id="i5">
+  <div class="wrap">
+    <span class="num rv">05</span>
+    <h2 class="rv" style="--t:50ms">Knowledge has to land somewhere.</h2>
+    <p class="rv" style="--t:90ms">Research that lives in a chat transcript evaporates when the session ends. Scout's output protocol is therefore as designed as its research protocol: raw lens outputs are deposited untouched, the brief is compiled into a permanent indexed wiki, a <strong>ledger</strong> records every mapped domain, and re-encountering a known domain triggers a delta pass — never a duplicate, never a re-derivation.</p>
+    <p class="rv" style="--t:120ms">Then the system surfaces without seizing control. The top three gaps — never more — are proposed to a command-center inbox where a human promotes or dismisses them. The radar reads the ledger too, which closes the loop: the more territory mapped, the quieter the system gets.</p>
+    <div class="lesson rv" style="--t:150ms"><span class="mono">Design rule</span>Propose, don't promote. Write once, compound forever, and let coverage earn silence.</div>
+  </div>
+</article>
+
+<article class="insight" id="i6">
+  <div class="wrap">
+    <span class="num rv">06</span>
+    <h2 class="rv" style="--t:50ms">Step zero, not another silo.</h2>
+    <p class="rv" style="--t:90ms">The graveyard of personal tooling is full of capable systems nobody's workflow ever passes through. Scout was designed as a <strong>layer, not a destination</strong>: the session-orientation ritual checks the ledger before proposing a plan; the planning and brainstorming skills consume briefs as context; and every gap a brief surfaces routes onward to a tool that already exists — a tutor skill to understand a concept, a grilling skill to stress-test it, live community research to hear practitioners, design skills to apply it.</p>
+    <p class="rv" style="--t:120ms">It begins things and feeds things. It refuses to become a place where work accumulates.</p>
+    <div class="lesson rv" style="--t:150ms"><span class="mono">Design rule</span>Integrate at the entry points of existing workflows. A step-zero system should make every other tool smarter — and claim none of their jobs.</div>
+  </div>
+</article>
+
+<!-- ============ ARCHITECTURE ============ -->
+<section class="arch" id="architecture">
+  <div class="wrap-wide">
+    <span class="kicker mono rv">The architecture</span>
+    <h2 class="rv" style="--t:40ms">From a half-formed prompt to compounded knowledge.</h2>
+    <p class="rv" style="--t:80ms">The full pipeline, as built. Steps one and two run on every prompt, forever. Everything after runs only when territory is genuinely new. Watch the route draw itself as you descend.</p>
+
+    <div class="pipeline" id="pipeline">
+      <div class="route" aria-hidden="true">
+        <svg preserveAspectRatio="none" viewBox="0 0 2 100">
+          <line id="routeLine" x1="1" y1="0" x2="1" y2="100" pathLength="1"/>
+        </svg>
+      </div>
+      <div class="step rv" style="--t:30ms">
+        <span class="n">01</span>
+        <span class="name">Radar</span>
+        <span class="what">Every prompt passes a regex tripwire — uncertainty phrasing, new-endeavor verbs. <span class="chip">&lt;50ms</span> <span class="chip">1/session</span> <span class="chip">3/day</span></span>
+      </div>
+      <div class="step rv" style="--t:60ms">
+        <span class="n">02</span>
+        <span class="name">Judgment</span>
+        <span class="what">The session model checks the ledger and the vaults. Covered or routine → total silence. New → one offered line.</span>
+      </div>
+      <div class="step rv" style="--t:90ms">
+        <span class="n">03</span>
+        <span class="name">Fingerprint</span>
+        <span class="what">The task is decomposed into the two-to-five fields it actually touches — "beautiful landing page" becomes motion design, typography, layout systems.</span>
+      </div>
+      <div class="step rv" style="--t:120ms">
+        <span class="n">04</span>
+        <span class="name">Sweep</span>
+        <span class="what">Parallel blind lenses, each owning one way of seeing, each web-grounded, each ignorant of the others.
+          <div class="lenses">
+            <div><span class="mono">Lexicon &amp; Map</span><p>Terms of art, named techniques, the taxonomy and decision axes of the field.</p></div>
+            <div><span class="mono">Toolsmith</span><p>The canonical stack, curated indexes, communities, reference implementations.</p></div>
+            <div><span class="mono">Elder</span><p>Tribal knowledge: heuristics, traps, taste markers, what experts argue about.</p></div>
+          </div>
+        </span>
+      </div>
+      <div class="step rv" style="--t:60ms">
+        <span class="n">05</span>
+        <span class="name">Gap diff</span>
+        <span class="what">Sweep findings versus what the vaults already hold — already-known separated from net-new, ranked by leverage on the task at hand.</span>
+      </div>
+      <div class="step rv" style="--t:90ms">
+        <span class="n">06</span>
+        <span class="name">Brief</span>
+        <span class="what">Ten sections compiled and filed: vocabulary, map, resources, tribal knowledge, options, the questions you didn't know to ask, routed next actions.</span>
+      </div>
+      <div class="step rv" style="--t:120ms">
+        <span class="n">07</span>
+        <span class="name">Verify</span>
+        <span class="what">A fresh-context agent grades the brief against a frozen rubric — counting, opening, fetching. Required failures send it back.</span>
+      </div>
+      <div class="step rv" style="--t:150ms">
+        <span class="n">08</span>
+        <span class="name">Compound</span>
+        <span class="what">Ledger updated, top gaps proposed to the command-center inbox, each routed to the tool that resolves it. The radar grows quieter as the map grows larger.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PROOF ============ -->
+<section id="proof">
+  <div class="wrap">
+    <span class="kicker mono rv">First contact</span>
+    <h2 class="rv" style="--t:40ms">The maiden run paid for the whole system.</h2>
+    <p class="rv" style="--t:80ms">The first scouted domain was the one that motivated the design: web animation and motion design — a field the user could see the results of but couldn't name anything in. Three blind lenses, one afternoon. What came back:</p>
+
+    <div class="findings">
+      <div class="finding rv" style="--t:40ms">
+        <div>
+          <h3>The industry-standard toolkit had quietly become free.</h3>
+          <p>GSAP and every formerly-premium plugin — the engines behind award-winning sites — went free for commercial use in 2025. Unknowable without knowing what GSAP was.</p>
+        </div>
+      </div>
+      <div class="finding rv" style="--t:80ms">
+        <div>
+          <h3>The wished-for "library of every amazing animation" already existed.</h3>
+          <p>Curated, named-pattern collections mean a design brief can now say <em>"magnetic button, split-text hero, scrubbed pin section"</em> — and be understood precisely.</p>
+        </div>
+      </div>
+      <div class="finding rv" style="--t:120ms">
+        <div>
+          <h3>The #1 tell of machine-generated motion is uniform timing.</h3>
+          <p>Everything fading in with identical duration and easing. The fix — varied timings, ease-out entrances, reduced-motion support — became review criteria the same day.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="verdict rv" id="verdict" style="--t:60ms">
+      <strong>VERDICT: PASS</strong>
+      14 of 14 rubric criteria — graded by a fresh-context verifier that counted the terms, opened the files, and fetched the URLs itself.
+    </div>
+
+    <p class="pull rv" style="--t:80ms">And the loop closed immediately: the page you are reading was designed under that brief's rules. No two entrances here share a duration. Everything eases out. Motion reduces gracefully if you've asked it to. The route through the architecture literally drew itself as you scrolled.</p>
+  </div>
+</section>
+
+<!-- ============ COLOPHON ============ -->
+<footer>
+  <div class="wrap">
+    <span class="mono rv">Colophon</span>
+    <p class="rv" style="--t:40ms">Scout was designed and built in a single session on June 11, 2026 — a skill, a prompt-radar hook, a grading rubric, a knowledge-base lane, and a command-center bridge, verified end-to-end before handoff.</p>
+    <p class="rv" style="--t:80ms">Set in Fraunces, Newsreader, and IBM Plex Mono. The radar sweeps once every seven seconds, which is roughly how often a good question should make you wonder what you're not asking. The compass in the corner is your position in this document — due north is the top.</p>
+  </div>
+</footer>
+
+<script>
+  /* ---------- base reveal layer (works with or without GSAP) ---------- */
+  (function () {
+    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var els = document.querySelectorAll(".rv");
+    if (!("IntersectionObserver" in window)) {
+      els.forEach(function (el) { el.classList.add("in"); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add("in");
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+    els.forEach(function (el) {
+      if (el.closest(".hero-inner")) { return; }
+      if (reduced) { el.classList.add("in"); return; }
+      io.observe(el);
+    });
+  })();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+<script>
+  /* ---------- scroll-linked layer (progressive enhancement) ---------- */
+  (function () {
+    if (!window.gsap || !window.ScrollTrigger) return;
+    var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    gsap.registerPlugin(ScrollTrigger);
+
+    /* reading progress — scrubbed */
+    gsap.to('#progressFill', {
+      scaleX: 1, ease: 'none',
+      scrollTrigger: { trigger: document.body, start: 'top top', end: 'bottom bottom', scrub: 0.3 }
+    });
+
+    /* compass — needle tracks document position */
+    if (!reduced) {
+      gsap.to('#compassNeedle', {
+        rotation: 360, svgOrigin: '27 27', ease: 'none',
+        scrollTrigger: { trigger: document.body, start: 'top top', end: 'bottom bottom', scrub: 0.6 }
+      });
+    }
+
+    if (reduced) return; /* everything below is pure delight; skip under reduced motion */
+
+    /* hero headline — word-stagger overrides the base fade */
+    (function splitHero() {
+      var h1 = document.getElementById('heroH1');
+      h1.classList.remove('rv');
+      var html = '';
+      h1.innerHTML.split(/(<em>.*?<\/em>|\s+)/).forEach(function (part) {
+        if (!part || /^\s+$/.test(part)) { html += ' '; return; }
+        if (part.indexOf('<em>') === 0) {
+          var inner = part.replace(/<\/?em>/g, '');
+          html += '<span class="w"><em><span class="wi">' + inner + '</span></em></span>';
+        } else {
+          html += '<span class="w"><span class="wi">' + part + '</span></span>';
+        }
+      });
+      h1.innerHTML = html;
+      gsap.set('.hero h1 .wi', { yPercent: 115 });
+      gsap.to('.hero h1 .wi', {
+        yPercent: 0, duration: 0.95, stagger: 0.065, ease: 'power4.out', delay: 0.35
+      });
+    })();
+
+    /* radar — parallax drift + slow fade as you leave the hero */
+    gsap.to('#radar', {
+      y: '22vh', opacity: 0.18, ease: 'none',
+      scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true }
+    });
+
+    /* matrix — cells cascade, the target cell lands last and hardest */
+    var cells = document.querySelectorAll('#matrix .cell');
+    gsap.set(cells, { opacity: 0, y: 22 });
+    ScrollTrigger.create({
+      trigger: '#matrix', start: 'top 82%', once: true,
+      onEnter: function () {
+        gsap.to([cells[0], cells[1], cells[2]], {
+          opacity: 1, y: 0, duration: 0.55, stagger: 0.13, ease: 'power2.out'
+        });
+        gsap.fromTo(cells[3],
+          { opacity: 0, y: 30, scale: 0.96 },
+          { opacity: 1, y: 0, scale: 1, duration: 0.7, delay: 0.5, ease: 'back.out(1.6)' });
+      }
+    });
+
+    /* insight numerals — scrubbed parallax, each drifts at its own rate */
+    gsap.utils.toArray('.insight .num').forEach(function (num, i) {
+      gsap.fromTo(num, { y: 36 + i * 4 }, {
+        y: -(20 + i * 4), ease: 'none',
+        scrollTrigger: { trigger: num.closest('.insight'), start: 'top bottom', end: 'bottom top', scrub: true }
+      });
+    });
+
+    /* pull-quote rules — the rust line draws down as the quote enters */
+    gsap.utils.toArray('.pull').forEach(function (q) {
+      gsap.fromTo(q, { '--draw': 0 }, {
+        '--draw': 1, duration: 1.1, ease: 'power3.out',
+        scrollTrigger: { trigger: q, start: 'top 80%', once: true }
+      });
+    });
+
+    /* pipeline route — the line draws itself, scrubbed; nodes light as passed */
+    var routeLine = document.getElementById('routeLine');
+    if (routeLine) {
+      gsap.to(routeLine, {
+        strokeDashoffset: 0, ease: 'none',
+        scrollTrigger: { trigger: '#pipeline', start: 'top 75%', end: 'bottom 55%', scrub: 0.4 }
+      });
+      document.querySelectorAll('#pipeline .step').forEach(function (step) {
+        ScrollTrigger.create({
+          trigger: step, start: 'top 62%',
+          onEnter: function () { step.classList.add('is-passed'); },
+          onLeaveBack: function () { step.classList.remove('is-passed'); }
+        });
+      });
+    }
+
+    /* verdict — ink-stamp slam */
+    var verdict = document.getElementById('verdict');
+    if (verdict) {
+      verdict.classList.remove('rv');
+      gsap.set(verdict, { opacity: 0, scale: 1.55, rotation: -9 });
+      ScrollTrigger.create({
+        trigger: verdict, start: 'top 80%', once: true,
+        onEnter: function () {
+          gsap.timeline()
+            .to(verdict, { opacity: 1, scale: 1, rotation: -1.4, duration: 0.32, ease: 'power4.in' })
+            .to(verdict, { x: 1.5, duration: 0.05, ease: 'power1.inOut' })
+            .to(verdict, { x: -1, duration: 0.05 })
+            .to(verdict, { x: 0, duration: 0.05 });
+        }
+      });
+    }
+  })();
+</script>
+
+</body>
+</html>
