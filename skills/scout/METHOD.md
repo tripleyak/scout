@@ -104,30 +104,38 @@ Sections, in order (rubric `~/.claude/rubrics/scout-brief.md` grades these):
 
 1. **TL;DR** — 3 lines: what this territory is, the single highest-leverage thing you didn't
    know to ask about, and the recommended next action.
-2. **Vocabulary** — table: term | what it is | why it matters here. ≥15 domain-specific terms of art.
-3. **Map of the territory** — the taxonomy (≥4 named categories, one example each) + decision axes.
-4. **Canonical resources** — ≥5 with URLs; must include ≥1 curated index and ≥1 practitioner community.
-5. **Tribal knowledge & traps** — ≥5 practitioner heuristics/failure modes not in tool docs.
-6. **Local territory** *(only when the Territory lens ran)* — modules the task touches,
+2. **Premise check** — the core assumption that must be true for this task to matter, the cost
+   of doing nothing, and the simpler thing that might already solve 80%. Commit to a verdict:
+   STRONG / QUESTIONABLE / WEAK — no hedging. A WEAK premise is the highest-leverage finding a
+   scout can return.
+3. **Vocabulary** — table: term | what it is | why it matters here. ≥15 domain-specific terms of art.
+4. **Map of the territory** — the taxonomy (≥4 named categories, one example each) + decision axes.
+5. **Canonical resources** — ≥5 with URLs; must include ≥1 curated index and ≥1 practitioner community.
+6. **Tribal knowledge & traps** — ≥5 practitioner heuristics/failure modes not in tool docs.
+7. **Local territory** *(only when the Territory lens ran)* — modules the task touches,
    conventions/invariants, prior art, off-limits abstractions — every claim with file:line.
-7. **Options landscape for this task** — the 2–4 viable approaches with tradeoffs, in terms the
-   vocabulary section defined.
-8. **Questions you didn't know to ask** — ≥5 unknown unknowns, each naming the concept that unlocks it.
-9. **Questions for you** — 3–5 unknown *knowns*: prioritized questions only the user can answer,
-   architecture-altering first, none answerable by web search. Record answers inline when given.
-10. **Gap diff** — paths checked in ~/kb/ + memory; already-known vs net-new; each net-new gap
+8. **Options landscape for this task** — the 2–4 viable approaches with tradeoffs, in terms the
+   vocabulary section defined. Tag each option with effort — S / M / L / XL, sized by scope and
+   risk (one seam / one subsystem / multiple seams + real unknowns / cross-cutting and
+   hard-to-reverse), never calendar time. Close with a stated preference: the option you'd take,
+   the condition that would flip you to another, and the single biggest risk. "It depends"
+   without a named flip condition is not a recommendation.
+9. **Questions you didn't know to ask** — ≥5 unknown unknowns, each naming the concept that unlocks it.
+10. **Questions for you** — 3–5 unknown *knowns*: prioritized questions only the user can answer,
+    architecture-altering first, none answerable by web search. Record answers inline when given.
+11. **Gap diff** — paths checked in ~/kb/ + memory; already-known vs net-new; each net-new gap
     tagged with its quadrant (known-unknown / unknown-unknown / unknown-known).
-11. **Watch-list** — 3–5 unknowns likely to surface only *during* implementation, each with the
+12. **Watch-list** — 3–5 unknowns likely to surface only *during* implementation, each with the
     signal that would reveal it (a test that fails, a module that resists, a number that looks off).
-12. **Prompt scaffold** — a ready-to-paste context block for the follow-on prompt/plan: the known
+13. **Prompt scaffold** — a ready-to-paste context block for the follow-on prompt/plan: the known
     knowns worth stating, the open known-unknowns to flag, references to attach (source code
     first), the user's starting point/experience level, and a one-line note on where specificity
     is deliberately left loose (specificity balance: over-prescription locks in flawed approaches,
     vagueness produces generic output). When the follow-on is a *delegated build* — an implementer
     agent or a context-free session — shape the scaffold as a five-part spec instead: objective,
     files, interfaces, constraints, verification command. It must survive without this conversation.
-13. **Next actions** — table: gap | routed skill/tool (from SKILL.md routing table).
-14. **Sources** — per-lens agent angle + URLs.
+14. **Next actions** — table: gap | routed skill/tool (from SKILL.md routing table).
+15. **Sources** — per-lens agent angle + URLs.
 
 ## Ledger format — `~/.claude/state/scout/domains.json`
 

@@ -22,8 +22,12 @@ Grades briefs produced by the scout skill (`~/.claude/skills/scout/SKILL.md`); t
 - Gap diff cites the actual paths checked in `~/kb/` and memory,
   separates already-known items from net-new ones, and tags each net-new gap with its quadrant
   (known-unknown / unknown-unknown / unknown-known).
+- Premise check names the core assumption, the cost of inaction, and the 80% simpler
+  alternative (or states there is none), and commits to a STRONG / QUESTIONABLE / WEAK verdict.
 - Options landscape names 2–4 viable approaches for the triggering task with tradeoffs, using
-  terms defined in the vocabulary section.
+  terms defined in the vocabulary section; each option carries an S/M/L/XL scope-and-risk tag
+  (not calendar time), and the section closes with a stated preferred option, the condition
+  that would flip it, and the single biggest risk.
 - (only when the Territory lens ran) Local-territory section cites file:line for the modules,
   conventions, prior art, and off-limits abstractions it names.
 

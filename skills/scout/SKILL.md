@@ -23,6 +23,11 @@ NOT an answer to the task. Scout names things; other skills resolve them.
 0. **Scope + ledger.** Name the domain and the task it serves. Check `~/.claude/state/scout/domains.json`
    and grep `~/kb/` (vault-first rule). Scouted <30d ago → surface the existing
    brief, run a delta pass only. Well-covered by an existing KB → say so and stop.
+   Then **challenge the premise** before spawning anything: what assumption must be true for
+   this task to matter, what happens if we do nothing, and what simpler thing might already
+   solve 80%. Verdict: STRONG / QUESTIONABLE / WEAK — a WEAK verdict goes to the user before
+   any sweep agents spawn; the cheapest scout is the one that proves the territory isn't worth
+   mapping.
 1. **Fingerprint.** Decompose the task into the 2–5 fields it actually touches
    (e.g. "beautiful landing page" → motion design, typography, layout systems, perceived performance).
    If the task touches an existing codebase or project, the local repo IS part of the territory —
@@ -42,7 +47,9 @@ NOT an answer to the task. Scout names things; other skills resolve them.
    (raw deposit, wiki compile, _index bump, log entry). Cross-link `[[wikilinks]]` into topic KBs.
 5. **Interview — unknown knowns.** Draft 3–5 prioritized questions for the *user*, ordered by how
    much the answer would change the approach (architecture-altering first). None should be
-   answerable by web search — that's the sweep's job. Interactive session → ask via
+   answerable by web search — that's the sweep's job. Batch everything into ONE message; skip
+   any question the sweep, the repo, or the conversation already answers; zero questions is a
+   valid outcome. Interactive session → ask via
    AskUserQuestion; autonomous → file under "Questions for you" in the brief. Half the territory
    is context only the user holds; no sweep agent can find it.
 6. **Surface + route.** In conversation: top 5 gaps, one line each, with a routed next action
