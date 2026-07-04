@@ -38,6 +38,11 @@ Each agent gets web access (WebSearch/WebFetch) and returns raw data, not prose 
 except the **Territory** lens, which gets repo access (Read/Grep/Glob) instead of the web.
 Fill `{domain}`, `{task}`, `{lens block}`:
 
+Lens sweeps are volume work, not judgment — the prompt fully determines the outcome, so spawn
+each sweep agent on a cheap model (e.g. `Agent(model: "sonnet")`). Synthesis, the gap diff, the
+interview, and all verdicts stay with the session model: spend the expensive model on judgment,
+cheap models on volume.
+
 ```
 You are one blind lens in a multi-angle sweep of the domain "{domain}", serving this task:
 "{task}". Other agents cover other angles — do NOT summarize the domain generally; own your
@@ -118,7 +123,9 @@ Sections, in order (rubric `~/.claude/rubrics/scout-brief.md` grades these):
     knowns worth stating, the open known-unknowns to flag, references to attach (source code
     first), the user's starting point/experience level, and a one-line note on where specificity
     is deliberately left loose (specificity balance: over-prescription locks in flawed approaches,
-    vagueness produces generic output).
+    vagueness produces generic output). When the follow-on is a *delegated build* — an implementer
+    agent or a context-free session — shape the scaffold as a five-part spec instead: objective,
+    files, interfaces, constraints, verification command. It must survive without this conversation.
 13. **Next actions** — table: gap | routed skill/tool (from SKILL.md routing table).
 14. **Sources** — per-lens agent angle + URLs.
 

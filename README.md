@@ -46,6 +46,8 @@ Modes: `/scout quick <topic>` (inline, nothing filed) · `/scout <topic>` (stand
 
 Scout's blind-lens sweep is original; the four-quadrant unknowns frame (known/unknown × known/unknown), the local **blindspot pass**, the user **interview**, the **prompt scaffold** with its specificity-balance rule, and the debrief loop are adopted from Thariq Shihipar's ["A Field Guide to Fable: Finding Your Unknowns"](https://x.com/trq212/status/2073100352921215386) (July 2026). His thesis — the map is not the territory, and output quality is bounded by how well you discover your own unknowns before prompting — is exactly the job scout automates.
 
+The cheap-model sweep lanes ("spend the expensive model on judgment, cheap models on volume") and the five-part spec shape for delegated-build scaffolds are adapted from [DannyMac180/fable-advisor](https://github.com/DannyMac180/fable-advisor)'s architect pattern.
+
 ## Sibling system
 
 **[Genome](https://github.com/tripleyak/genome-site)** — scout maps territory ahead; genome dissects ideas behind (12-layer idea autopsies → generative principles).
