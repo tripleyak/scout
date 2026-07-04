@@ -34,12 +34,17 @@ The installer is idempotent and backs up any existing `~/.claude/skills/scout/` 
 ## How it works
 
 1. **Radar** — a deliberately dumb regex hook watches every prompt for uncertainty phrasing ("I don't even know what's possible") and new-endeavor signals. Cheap trigger, smart filter: the session model decides whether to surface anything.
-2. **Sweep** — `/scout <topic>` spawns parallel research agents that are blind to each other, each owning one lens: Lexicon & Map, Toolsmith, Elder (tribal knowledge). Diversity catches what redundancy can't.
-3. **Brief** — ten sections filed to `~/kb/scout/wiki/`: vocabulary (≥15 terms), territory map, canonical resources, tribal knowledge, options landscape, the questions you didn't know to ask, routed next actions.
-4. **Verify** — a fresh-context verifier grades the brief against the rubric. Required failures send it back.
-5. **Compound** — the ledger grows; the radar reads it and gets quieter as your map gets larger.
+2. **Sweep** — `/scout <topic>` spawns parallel research agents that are blind to each other, each owning one lens: Lexicon & Map, Toolsmith, Elder (tribal knowledge), plus a **Territory** lens that runs a blindspot pass over your local repo when the task touches a codebase. Diversity catches what redundancy can't.
+3. **Interview** — the sweep only covers what the web can know. Scout then asks *you* 3–5 prioritized questions (architecture-altering first) to surface your unknown *knowns* — the tacit context no search can find.
+4. **Brief** — fourteen sections filed to `~/kb/scout/wiki/`: vocabulary (≥15 terms), territory map, canonical resources, tribal knowledge, local territory (file:line), options landscape, the questions you didn't know to ask, a four-quadrant gap diff, a watch-list of unknowns likely to surface mid-build, and a ready-to-paste **prompt scaffold** for whatever prompt or plan comes next.
+5. **Verify** — a fresh-context verifier grades the brief against the rubric. Required failures send it back.
+6. **Compound** — the ledger grows; the radar reads it and gets quieter as your map gets larger. After you build, `/scout debrief <slug>` folds what the territory taught you back into the brief.
 
-Modes: `/scout quick <topic>` (inline, nothing filed) · `/scout <topic>` (standard) · `/scout deep <topic>` (5 lenses + completeness critic).
+Modes: `/scout quick <topic>` (inline, nothing filed) · `/scout <topic>` (standard) · `/scout deep <topic>` (6 lenses + completeness critic) · `/scout debrief <slug>` (post-build delta).
+
+## Lineage
+
+Scout's blind-lens sweep is original; the four-quadrant unknowns frame (known/unknown × known/unknown), the local **blindspot pass**, the user **interview**, the **prompt scaffold** with its specificity-balance rule, and the debrief loop are adopted from Thariq Shihipar's ["A Field Guide to Fable: Finding Your Unknowns"](https://x.com/trq212/status/2073100352921215386) (July 2026). His thesis — the map is not the territory, and output quality is bounded by how well you discover your own unknowns before prompting — is exactly the job scout automates.
 
 ## Sibling system
 

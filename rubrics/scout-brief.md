@@ -17,10 +17,15 @@ Grades briefs produced by the scout skill (`~/.claude/skills/scout/SKILL.md`); t
 ## Gap focus
 - "Questions you didn't know to ask" section contains ≥5 questions, each naming the concept
   that unlocks it.
-- Gap diff cites the actual paths checked in `~/kb/` and memory, and
-  separates already-known items from net-new ones.
+- "Questions for you" section contains 3–5 questions only the user can answer, ordered by how
+  much the answer would change the approach; none is answerable by web search.
+- Gap diff cites the actual paths checked in `~/kb/` and memory,
+  separates already-known items from net-new ones, and tags each net-new gap with its quadrant
+  (known-unknown / unknown-unknown / unknown-known).
 - Options landscape names 2–4 viable approaches for the triggering task with tradeoffs, using
   terms defined in the vocabulary section.
+- (only when the Territory lens ran) Local-territory section cites file:line for the modules,
+  conventions, prior art, and off-limits abstractions it names.
 
 ## Grounding
 - Every resource has a URL; load-bearing claims carry sources; the Sources section lists each
@@ -31,6 +36,11 @@ Grades briefs produced by the scout skill (`~/.claude/skills/scout/SKILL.md`); t
 - Next-actions table routes each surfaced gap to a concrete skill or tool (per the SKILL.md
   routing table), not "research further".
 - TL;DR states the single highest-leverage unknown and a recommended next action in ≤3 lines.
+- Prompt scaffold is a self-contained, ready-to-paste context block: states the known knowns,
+  flags the open known-unknowns, lists references (source code first), names the starting
+  point/experience level, and notes where specificity is deliberately left loose.
+- (advisory) Watch-list names 3–5 unknowns likely to surface during implementation, each paired
+  with the signal that would reveal it.
 
 ## Output Quality
 - Brief exists at `~/kb/scout/wiki/<slug>.md` with template frontmatter (title, date, domain,
